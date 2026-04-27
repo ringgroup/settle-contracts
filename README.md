@@ -1,5 +1,9 @@
 # Settle EVM Router
 
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.27-blue.svg)](https://soliditylang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Security Policy](https://img.shields.io/badge/security-policy-red.svg)](SECURITY.md)
+
 The on-chain primitive for Settle on EVM chains. A single transaction pulls funds
 from the customer, sends 99.5% to the merchant, and 0.5% to Settle's treasury.
 
@@ -215,16 +219,63 @@ The on-chain `InvoicePaid` event also encodes both legs of the split — the
 unit tests assert this, and Basescan will render the topics under the tx
 in the proxy's "Events" tab.
 
-### Mainnet deployment (post-audit)
+### Mainnet deployment
 
-Mainnet (Base) deployment is **deferred until external audit completes**. When
-ready:
+The CEO has decided not to commission a paid audit before launch. Instead the
+risk is mitigated by: free static analysis (Slither / Mythril / Aderyn — see
+`audit/`), an open-sourced contracts repo, a 2-of-3 Safe + 48-hour timelock
+ownership model, and a $20k–$50k Immunefi bounty live on day one. The
+specific procedures live in:
 
-1. Deploy a 2-of-3 Gnosis Safe at https://app.safe.global (founder / cofounder / cold backup).
-2. Deploy `TimelockController` with `minDelay = 172800` (48h), `proposers = [Safe]`,
-   `executors = [Safe]`, `admin = address(0)`.
-3. Set `OWNER = <TimelockController address>` and re-run the deploy script with
-   `--rpc-url base`.
+- `SETUP-MULTISIG.md` — Safe + TimelockController deploy + ownership transfer.
+- `SETUP-BOUNTY.md` — Immunefi program creation, scope, payout tiers.
+- `SECURITY.md` — public-facing reporting policy.
+
+End-to-end, mainnet deploy is:
+
+1. Run all three static analysis tools (`audit/slither.txt`, `audit/mythril.txt`, `audit/aderyn.md`). Every above-medium finding must be either fixed with a regression test or dismissed with a one-line rationale in `audit/REVIEWED.md`.
+2. Open-source the repo (see "Open-sourcing & subtree publish" below).
+3. Run the deploy script with `--rpc-url base` (same shape as the testnet steps above) **with `OWNER` set to a temporary deployer EOA** — easier to recover from a misconfig than directly handing to the timelock.
+4. Follow `SETUP-MULTISIG.md` to deploy the Safe + TimelockController and transfer ownership to the timelock.
+5. Verify with `cast call $ROUTER_PROXY "owner()(address)"` — must equal the TimelockController.
+6. Activate the Immunefi program (`SETUP-BOUNTY.md`).
+
+## Pre-mainnet checklist
+
+- [x] Foundry tests passing (31)
+- [x] Slither / Mythril / Aderyn run — outputs in `audit/slither.txt`, `audit/mythril.txt`, `audit/aderyn.md`; review log in `audit/REVIEWED.md`
+- [x] Code open-sourced at https://github.com/ringgroup/settle-contracts
+- [x] Multisig setup procedure documented (`SETUP-MULTISIG.md`)
+- [x] Immunefi bounty setup procedure documented (`SETUP-BOUNTY.md`, `SECURITY.md`)
+- [ ] Multisig deployed (manual — user does, see `SETUP-MULTISIG.md`)
+- [ ] Bounty live (manual — user does, see `SETUP-BOUNTY.md`)
+- [ ] Mainnet deploy (manual — user does, after the above)
+
+## Open-sourcing & subtree publish
+
+`SettleRouter` lives in this monorepo at `contracts/evm/`, but it is mirrored
+to a public repo at https://github.com/ringgroup/settle-contracts so external
+auditors and bounty hunters can read the source without seeing our backend.
+The monorepo is the **single source of truth**; the public repo is a
+mechanical projection of `contracts/evm/`.
+
+To publish a fresh snapshot of `contracts/evm/` to the public repo, from the
+root of this monorepo:
+
+```bash
+# Re-derive the contracts-only branch from the current main.
+git subtree split --prefix=contracts/evm -b contracts-public
+
+# Push it to the public repo. First time only: --set-upstream.
+git push https://github.com/ringgroup/settle-contracts.git contracts-public:main
+
+# Clean up the local split branch (it's regenerated each publish).
+git branch -D contracts-public
+```
+
+The subtree command rewrites history so each public-repo commit corresponds
+1:1 with the monorepo commit that touched `contracts/evm/`. Authorship is
+preserved.
 
 ## Other chains (sprint 5)
 

@@ -1,0 +1,12 @@
+'forge clean' running (wd: /Users/thatsucks/code/settle/contracts/evm)
+'forge config --json' running
+'forge build --build-info src/SettleRouter.sol' running (wd: /Users/thatsucks/code/settle/contracts/evm)
+INFO:Detectors:
+Detector: naming-convention
+Variable SettleRouter.__gap (src/SettleRouter.sol#61) is not in mixedCase
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#conformance-to-solidity-naming-conventions
+INFO:Detectors:
+Detector: unused-state
+SettleRouter.__gap (src/SettleRouter.sol#61) is never used in SettleRouter (src/SettleRouter.sol#31-287)
+Reference: https://github.com/crytic/slither/wiki/Detector-Documentation#unused-state-variable
+INFO:Slither:src/SettleRouter.sol analyzed (16 contracts with 101 detectors), 2 result(s) found

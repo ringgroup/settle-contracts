@@ -1,0 +1,1 @@
+{"remappings":["@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/","@openzeppelin/contracts/=lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/"],"viaIR":true,"optimizer":{"enabled":true,"runs":200}}
