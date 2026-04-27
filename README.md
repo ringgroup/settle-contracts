@@ -55,45 +55,165 @@ the proxy (cold storage writes for first-time recipients dominate).
 
 ## Deploy to Base Sepolia
 
-You will need:
+Five commands, end-to-end. Assumes Foundry is installed and the working
+directory is `contracts/evm`. Treat every secret below as testnet-only —
+none of these keys should ever hold mainnet value.
 
-1. **A funded deployer key.** Get Base Sepolia ETH from
-   https://www.alchemy.com/faucets/base-sepolia or
-   https://faucet.quicknode.com/base/sepolia.
-2. **An owner address.** For testnet iteration this can be a plain EOA you
-   control. For mainnet this MUST be a TimelockController whose proposers/executors
-   are a 2-of-3 Safe (see `script/Deploy.s.sol` comments).
-3. **A treasury address.** For testnet, an EOA. For mainnet, a Safe multisig.
+### 1. Generate (or import) a deployer EOA
 
-### Commands
+A throwaway Sepolia key is fine — there's no production risk on testnet.
 
 ```bash
-cd contracts/evm
+# Fresh key (foundry writes the address + private key to stdout)
+cast wallet new
 
-# Required env
-export PRIVATE_KEY=0x...                          # deployer (NOT owner)
-export OWNER=0x...                                # router admin (timelock on mainnet)
-export FEE_RECIPIENT=0x...                        # treasury
-export INITIAL_FEE_BPS=50                         # optional, defaults to 50 (= 0.5%)
-
-# Optional, for source verification on Basescan
-export ETHERSCAN_API_KEY=...
-
-# Dry run (no broadcast)
-forge script script/Deploy.s.sol:Deploy --rpc-url base_sepolia
-
-# Deploy + verify
-forge script script/Deploy.s.sol:Deploy \
-    --rpc-url base_sepolia \
-    --broadcast \
-    --verify
-
-# Deploy without verifying (faster iteration)
-forge script script/Deploy.s.sol:Deploy --rpc-url base_sepolia --broadcast
+# Save it to a local .env (NOT committed — see .gitignore)
+cat > .env <<'EOF'
+DEPLOYER_PRIVATE_KEY=0xabc...     # paste the private key from `cast wallet new`
+DEPLOYER_ADDRESS=0xdef...         # paste the matching address
+EOF
+chmod 600 .env
 ```
 
-The script prints both the **proxy address** (use this everywhere — it's what
-clients call) and the **implementation address** (only relevant for upgrades).
+The repo's `.gitignore` already excludes `contracts/evm/.env`. Do NOT commit
+the file even by accident — `git status` should never list it. If you'd
+rather not have a private key on disk, replace step 4 with
+`--interactive` (Forge will prompt) or `--account <name>` after
+`cast wallet import`.
+
+### 2. Fund the deployer with Base Sepolia ETH
+
+A successful deploy + verification costs ~0.005 Sepolia ETH. Faucets,
+roughly in order of reliability as of 2026-04:
+
+- https://www.alchemy.com/faucets/base-sepolia
+- https://www.quicknode.com/faucets/base/base-sepolia
+- https://thirdweb.com/base-sepolia-testnet?tab=faucet
+
+Drop the deployer address (`$DEPLOYER_ADDRESS` from step 1) into one of
+the above and wait ~30 s for the drip. Confirm with:
+
+```bash
+cast balance "$DEPLOYER_ADDRESS" --rpc-url https://sepolia.base.org
+# expect a non-zero result, e.g. 100000000000000000  (= 0.1 ETH)
+```
+
+### 3. Set the deploy env vars
+
+The Forge script reads `PRIVATE_KEY`, `OWNER`, `FEE_RECIPIENT`,
+`INITIAL_FEE_BPS` (see `script/Deploy.s.sol`). Map your deployer key into
+`PRIVATE_KEY` and add the testnet fee recipient + Basescan key:
+
+```bash
+# Continuing from step 1 — append to the same .env
+cat >> .env <<'EOF'
+BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+PRIVATE_KEY=$DEPLOYER_PRIVATE_KEY                 # forge reads this name
+OWNER=0x...                                       # EOA you control on testnet
+FEE_RECIPIENT=0x...                               # multisig if you have one;
+                                                  # otherwise a fresh EOA — testnet, no real risk
+INITIAL_FEE_BPS=50                                # 0.5%
+BASESCAN_API_KEY=...                              # https://basescan.org/myapikey
+ETHERSCAN_API_KEY=$BASESCAN_API_KEY               # foundry.toml reads this name
+EOF
+
+# Load it into the current shell
+set -a; source .env; set +a
+```
+
+### 4. Deploy via Forge
+
+```bash
+forge script script/Deploy.s.sol:Deploy \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL" \
+    --private-key "$PRIVATE_KEY" \
+    --broadcast --verify \
+    --etherscan-api-key "$BASESCAN_API_KEY" \
+    -vvv
+```
+
+The script prints the **proxy address** (this is what clients call) and the
+**implementation address** (only relevant for upgrades). Save the proxy:
+
+```bash
+export ROUTER_PROXY=0x...   # from the script's "Proxy (use this address)" line
+```
+
+### 5. Post-deploy verification
+
+Read state directly from the proxy and confirm initialisation took:
+
+```bash
+cast call "$ROUTER_PROXY" "feeBps()(uint16)"        --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: 50
+
+cast call "$ROUTER_PROXY" "feeRecipient()(address)" --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: $FEE_RECIPIENT (lower-cased)
+
+cast call "$ROUTER_PROXY" "paused()(bool)"          --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: false
+
+cast call "$ROUTER_PROXY" "owner()(address)"        --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: $OWNER
+```
+
+Then load the proxy on Basescan and confirm the source is verified +
+"Read as Proxy" exposes `feeBps`, `feeRecipient`, `owner`, `paused`:
+
+  https://sepolia.basescan.org/address/$ROUTER_PROXY#readProxyContract
+
+### Verify the split works on testnet
+
+Once the router is live, smoke-test the 99.5 / 0.5 split with a `MockERC20`.
+This is what we ship for the unit suite, so deploying it on testnet is
+mechanical. Five commands.
+
+```bash
+# Wallet you'll act as the customer from. Could be the deployer; for clarity
+# we use a separate test wallet.
+export PAYER_PRIVATE_KEY=$PRIVATE_KEY
+export PAYER=$DEPLOYER_ADDRESS
+export MERCHANT=0x...   # any EOA you control or can read; check its balance
+                        # before/after to see the 99.5 land
+
+# 1. Deploy a MockERC20 with 6 decimals (USDC-like) and mint 1000 to PAYER.
+forge create test/mocks/MockERC20.sol:MockERC20 \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL" \
+    --private-key "$PAYER_PRIVATE_KEY" \
+    --constructor-args "Mock USDC" "mUSDC" 6 \
+    --broadcast
+export TOKEN=0x...    # paste the deployed address
+
+cast send "$TOKEN" "mint(address,uint256)" "$PAYER" 1000000000 \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL" --private-key "$PAYER_PRIVATE_KEY"
+# 1000 * 10**6 = 1_000_000_000 — that's 1000 mUSDC
+
+# 2. Approve 100 mUSDC to the router.
+cast send "$TOKEN" "approve(address,uint256)" "$ROUTER_PROXY" 100000000 \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL" --private-key "$PAYER_PRIVATE_KEY"
+
+# 3. Pay invoice — bytes32 invoiceId can be anything unique; expectedFeeBps
+#    must match the router's current feeBps (50 from step 5).
+INVOICE_ID=0x$(openssl rand -hex 32)
+cast send "$ROUTER_PROXY" \
+    "payInvoice(bytes32,address,address,uint256,uint16)" \
+    "$INVOICE_ID" "$MERCHANT" "$TOKEN" 100000000 50 \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL" --private-key "$PAYER_PRIVATE_KEY"
+
+# 4. Confirm merchant got 99.5 mUSDC (= 99_500_000 base units).
+cast call "$TOKEN" "balanceOf(address)(uint256)" "$MERCHANT" \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: 99500000  (assuming MERCHANT had 0 balance before)
+
+# 5. Confirm fee recipient got 0.5 mUSDC (= 500_000 base units).
+cast call "$TOKEN" "balanceOf(address)(uint256)" "$FEE_RECIPIENT" \
+    --rpc-url "$BASE_SEPOLIA_RPC_URL"
+# expected: 500000   (assuming FEE_RECIPIENT had 0 balance before)
+```
+
+The on-chain `InvoicePaid` event also encodes both legs of the split — the
+unit tests assert this, and Basescan will render the topics under the tx
+in the proxy's "Events" tab.
 
 ### Mainnet deployment (post-audit)
 
