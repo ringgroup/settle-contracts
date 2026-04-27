@@ -19,8 +19,10 @@ No medium/high/critical findings. Nothing to fix.
 
 Run: 2026-04-27. Tool: `mythril 0.24.8` (via pipx, Python 3.13). Output: `audit/mythril.txt`.
 
-See `audit/mythril.txt` for the raw output. (See file footer for a summary
-of what was found / dismissed.)
+Total findings: **0**. The analysis completed successfully on the symbolic
+execution of `SettleRouter.sol` (max depth 10) and reported "No issues were
+detected." Settings used: `viaIR: true`, `optimizer: { enabled: true, runs:
+200 }` — same as the production build (see `foundry.toml`).
 
 ## Aderyn
 
