@@ -13,6 +13,14 @@ from the customer, sends 99.5% to the merchant, and 0.5% to Settle's treasury.
 - **Three payment paths.** Plain `approve`, EIP-2612 `permit`, EIP-3009 `transferWithAuthorization`.
 - **UUPS upgradeable.** Owner is intended to be a TimelockController fronted by a 2-of-3 Safe.
 
+## Live deployments
+
+| Network | Safe (owner) | Router proxy | Notes |
+|---|---|---|---|
+| Base mainnet | [`0x751F93dedfd27c54c9f192f27d95C5aBA42a2e8d`](https://basescan.org/address/0x751F93dedfd27c54c9f192f27d95C5aBA42a2e8d) | (deploying) | Settle Treasury, 2-of-3 multisig |
+| Base Sepolia (testnet) | — | — | not deployed yet |
+| Ethereum mainnet | — | — | v1.5+ — opt-in for orders ≥ $1k |
+
 ```
 contracts/evm/
 ├── foundry.toml
